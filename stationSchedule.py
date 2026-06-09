@@ -1,31 +1,17 @@
-import requests
-from colorama import Fore, Style
+"""Original train tracker: lists every rail station with its supported lines
+and the next few trains, refreshing every 20 seconds.
+
+Now built on the shared WmataClient (see wmata.py)."""
+
 import time
 
-def get_station_information():
-    stations_url = "https://api.wmata.com/Rail.svc/json/jStations"
-    headers = {"api_key": "{YOUR_API_KEY}"} # CHANGE THIS TO YOUR API KEY
+from colorama import Fore, Style
 
-    response = requests.get(stations_url, headers=headers)
-    data = response.json()
+from wmata import WmataClient, WmataError
+from colors import get_line_color
 
-    stations = data["Stations"]
-    return stations
+client = WmataClient()
 
-# API for train station incoming train predictions
-def get_next_trains(station_code):
-    predictions_url = f"https://api.wmata.com/StationPrediction.svc/json/GetPrediction/{station_code}"
-    headers = {"api_key": "{YOUR_API_KEY}"} # CHANGE THIS TO YOUR API KEY
-
-    response = requests.get(predictions_url, headers=headers)
-    data = response.json()
-
-    if "Trains" in data:
-        predictions = data["Trains"][:3]
-    else:
-        predictions = []
-
-    return predictions
 
 # Station information
 def display_station_information(stations):
@@ -33,7 +19,7 @@ def display_station_information(stations):
     for station in stations:
         line_support = get_line_support(station)
         station_code = station["Code"]
-        next_trains = get_next_trains(station_code)
+        next_trains = client.rail_predictions(station_code)[:3]
 
         print(f"{line_support}")
         if next_trains:
@@ -43,6 +29,7 @@ def display_station_information(stations):
 
         print()
 
+
 # Grabbing information about stations
 def get_line_support(station):
     station_name = station["Name"]
@@ -50,7 +37,8 @@ def get_line_support(station):
     line_support = f"{station_name:<25} {' '.join([f'{get_line_color(line_code)}[{line_code}]{Style.RESET_ALL}' for line_code in line_codes if line_code])}"
     return line_support
 
-# Print and format the output of the trains 
+
+# Print and format the output of the trains
 def display_next_trains(next_trains):
     dashed_line = "_" * 80
 
@@ -76,27 +64,25 @@ def display_next_trains(next_trains):
 
     print(dashed_line)
 
-# Color the line code the color of the train line
-def get_line_color(line_code):
-    line_colors = {
-        "RD": Fore.RED,
-        "BL": Fore.BLUE,
-        "YL": Fore.LIGHTYELLOW_EX,
-        "OR": Fore.YELLOW,
-        "GR": Fore.GREEN,
-        "SV": Fore.LIGHTBLACK_EX,
-    }
-
-    return line_colors.get(line_code, Fore.LIGHTGREEN_EX)
 
 def abbreviate_destination(destination):
     if len(destination) > 20 and len(destination[:18]) + 2 < 21:
         destination = f"{destination[:18]}.."
     return destination
 
-stations = get_station_information()
 
-# Delay for 20 seconds before the next update
-while True:
-    display_station_information(stations)
-    time.sleep(20)  
+def main():
+    stations = client.rail_stations()
+    # Delay for 20 seconds before the next update
+    while True:
+        display_station_information(stations)
+        time.sleep(20)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except WmataError as exc:
+        raise SystemExit(str(exc))
+    except KeyboardInterrupt:
+        pass
