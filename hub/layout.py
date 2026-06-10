@@ -1,51 +1,60 @@
 """Octilinear ("spider map") schematic layout for the Metro diagram.
 
-Instead of hand-placing all ~100 stations, we fix coordinates only for ANCHOR
-stations (terminals, interchanges, and corners where a line bends) on a 45/90
-grid, then evenly distribute the in-between stations along each straight
-segment. This keeps every line straight and angled like the official map.
+A faithful recreation of the official WMATA map's geometry: the Metro Center /
+Gallery Place / L'Enfant core triangle, the river dip to Rosslyn, the horizontal
+Blue/Orange/Silver trunk, the vertical Yellow/Green trunk, the Red horseshoe, and
+the western/eastern branches at their real angles.
 
-Grid convention: x grows east, y grows south (matches SVG's y-down), so "up"
-on the map is negative y. Units are arbitrary; the frontend scales to fit.
+We fix coordinates only for ANCHOR stations (terminals, interchanges, and bends)
+on a 45/90 grid; the stations between two anchors are evenly interpolated along
+the straight segment. Shared stations resolve consistently because the bracketing
+anchors are identical across lines.
+
+Grid convention: x grows east, y grows south (matches SVG y-down), so "up" on the
+map is negative y. Units are arbitrary; the frontend scales to fit.
 """
 
 # code -> (x, y). Only anchors; everything else is interpolated between them.
 ANCHORS = {
-    # --- Blue/Orange/Silver horizontal trunk (y = 0) ---
-    "C05": (-4, 0),    # Rosslyn
-    "A01": (0, 0),     # Metro Center  (== C01)
-    "D03": (3, 0),     # L'Enfant Plaza (== F03)
-    "D08": (8, 0),     # Stadium-Armory
+    # --- core triangle ---
+    "A01": (22, 26),   # Metro Center (== C01)
+    "B01": (25, 23),   # Gallery Place (== F01)
+    "D03": (25, 29),   # L'Enfant Plaza (== F03)
 
-    # --- Yellow/Green vertical trunk (x = 3) ---
-    "B01": (3, -3),    # Gallery Place (== F01)
-    "B06": (3, -10),   # Fort Totten (== E06)
+    # --- Blue/Orange/Silver trunk ---
+    "C04": (16, 26),   # Foggy Bottom (bend before the river dip)
+    "C05": (14, 28),   # Rosslyn (river dip / 3-way junction)
+    "D08": (35, 29),   # Stadium-Armory
 
     # --- Red: SW horseshoe + NE arm ---
-    "A15": (-14, -14), # Shady Grove (long NW diagonal into Metro Center)
-    "B03": (5, -5),    # Union Station (corner)
-    "B05": (5, -8),    # Brookland-CUA (corner)
-    "B11": (3, -15),   # Glenmont
+    "A15": (16, 4),    # Shady Grove (drops vertically, then bends SE into the core)
+    "A07": (16, 20),   # Tenleytown-AU (bend: vertical leg meets the SE diagonal)
+    "B03": (27, 21),   # Union Station (corner of the east bow)
+    "B05": (27, 15),   # Brookland-CUA (corner of the east bow)
+    "B06": (25, 13),   # Fort Totten (== E06)
+    "B11": (25, 3),    # Glenmont
+
+    # --- Yellow/Green vertical trunk continues up to Fort Totten via B06 ---
 
     # --- Green branches ---
-    "F06": (3, 3),     # Anacostia (corner: trunk turns SE)
-    "F11": (8, 8),     # Branch Ave
-    "E10": (7, -14),   # Greenbelt
+    "F06": (25, 35),   # Anacostia (trunk turns SE)
+    "F11": (35, 45),   # Branch Ave
+    "E10": (33, 5),    # Greenbelt
 
     # --- Orange/Silver west ---
-    "K05": (-9, 0),    # East Falls Church (OR/SV split): runs west off the trunk
-    "K08": (-13, 0),   # Vienna (Orange continues straight west)
-    "N12": (-20, -11), # Ashburn (Silver branches NW)
+    "K05": (4, 18),    # East Falls Church (OR/SV split)
+    "K08": (-2, 18),   # Vienna (Orange runs west)
+    "N12": (-18, -4),  # Ashburn (Silver runs NW up the Dulles corridor)
 
     # --- Orange/Silver/Blue east branches ---
-    "D13": (13, -5),   # New Carrollton (Orange)
-    "G05": (13, 5),    # Downtown Largo (Silver/Blue)
+    "D13": (45, 19),   # New Carrollton (Orange, NE)
+    "G05": (45, 39),   # Downtown Largo (Silver/Blue, SE)
 
     # --- Blue/Yellow C-line south ---
-    "C07": (-4, 2),    # Pentagon (Yellow joins via bridge)
-    "C13": (-4, 7),    # King St-Old Town (Blue/Yellow split)
-    "J03": (-6, 9),    # Franconia-Springfield (Blue)
-    "C15": (-4, 9),    # Huntington (Yellow)
+    "C07": (14, 34),   # Pentagon (Yellow leaves via the bridge to L'Enfant)
+    "C13": (14, 46),   # King St-Old Town (Blue/Yellow split)
+    "J03": (10, 50),   # Franconia-Springfield (Blue, SW)
+    "C15": (14, 50),   # Huntington (Yellow, S)
 }
 
 
