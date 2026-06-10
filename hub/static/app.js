@@ -25,21 +25,24 @@ let activeStation = null;
 const $ = (sel) => document.querySelector(sel);
 
 // ---- projection -----------------------------------------------------------
-function buildProjection(bounds) {
-  const { latMin, latMax, lonMin, lonMax } = bounds;
-  const meanLat = (latMin + latMax) / 2;
-  const lonScale = Math.cos((meanLat * Math.PI) / 180);
-  const dataW = (lonMax - lonMin) * lonScale;
-  const dataH = latMax - latMin;
+// Stations carry schematic grid coords (x, y); fit them into the SVG viewBox.
+function buildProjection(stations) {
+  const xs = stations.map((s) => s.x).filter((v) => v != null);
+  const ys = stations.map((s) => s.y).filter((v) => v != null);
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  const yMin = Math.min(...ys), yMax = Math.max(...ys);
+  const gridW = xMax - xMin || 1;
+  const gridH = yMax - yMin || 1;
   const drawW = VIEW_W - 2 * PAD;
-  const drawH = drawW * (dataH / dataW);
+  const scale = drawW / gridW;
+  const drawH = gridH * scale;
   const viewH = drawH + 2 * PAD;
 
   $("#map").setAttribute("viewBox", `0 0 ${VIEW_W} ${viewH}`);
 
-  project = (lat, lon) => ({
-    x: PAD + ((lon - lonMin) * lonScale / dataW) * drawW,
-    y: PAD + ((latMax - lat) / dataH) * drawH,
+  project = (x, y) => ({
+    x: PAD + (x - xMin) * scale,
+    y: PAD + (y - yMin) * scale,
   });
 }
 
@@ -69,9 +72,11 @@ function offsetPolyline(points, lane) {
 
 // ---- rendering: lines + stations -----------------------------------------
 function renderGeometry() {
-  buildProjection(geo.bounds);
+  buildProjection(geo.stations);
 
-  for (const s of geo.stations) stationXY[s.code] = project(s.lat, s.lon);
+  for (const s of geo.stations) {
+    if (s.x != null) stationXY[s.code] = project(s.x, s.y);
+  }
 
   const linesLayer = $("#lines-layer");
   for (const line of geo.lines) {
@@ -89,6 +94,7 @@ function renderGeometry() {
   const stationsLayer = $("#stations-layer");
   for (const s of geo.stations) {
     const p = stationXY[s.code];
+    if (!p) continue;
     const interchange = (s.lines.length > 1) || (s.together && s.together.length);
     const dot = document.createElementNS(SVGNS, "circle");
     dot.setAttribute("cx", p.x.toFixed(1));
@@ -122,10 +128,14 @@ function renderLegend() {
 
 // ---- rendering: trains (animated) ----------------------------------------
 function trainScreenPos(t) {
-  const base = project(t.lat, t.lon);
   const a = stationXY[t.from], b = stationXY[t.to];
+  if (!a) return null;
+  if (!b || t.from === t.to) return { x: a.x, y: a.y };
+  // Interpolate along the schematic segment, then offset onto the line's lane.
+  const f = t.frac == null ? 0 : t.frac;
+  const base = { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
   const lane = laneFor(t.line);
-  if (!lane || !a || !b || (t.from === t.to)) return base;
+  if (!lane) return base;
   const n = perp(a.x, a.y, b.x, b.y);
   return { x: base.x + n.x * lane * LANE_PX, y: base.y + n.y * lane * LANE_PX };
 }
@@ -139,9 +149,9 @@ function updateTrains(trains) {
   const seen = new Set();
   const layer = $("#trains-layer");
   for (const t of trains) {
-    if (t.lat == null) continue;
-    seen.add(t.id);
     const pos = trainScreenPos(t);
+    if (!pos) continue;
+    seen.add(t.id);
     let dot = trainDots[t.id];
     if (!dot) {
       const el = document.createElementNS(SVGNS, "circle");

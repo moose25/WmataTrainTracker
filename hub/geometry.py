@@ -7,8 +7,11 @@ Two jobs:
      interpolated (lat, lon) points gliding between stations, using the ordered
      circuit->station sequence from StandardRoutes.
 
-Coordinates are raw lat/lon; the frontend projects them to its canvas.
+Stations carry both raw lat/lon and a schematic (x, y) from layout.py; the
+frontend prefers the schematic coordinates for the spider-map look.
 """
+
+from layout import build_coords, insert_missing
 
 # WMATA line colors (hex) for the frontend.
 LINE_HEX = {
@@ -78,6 +81,7 @@ class Diagram:
                 sc = tc.get("StationCode")
                 if sc and sc in self.stations and (not ordered or ordered[-1] != sc):
                     ordered.append(sc)
+            ordered = insert_missing(code, ordered)
             if len(ordered) >= 2:
                 self.lines.append({
                     "code": code,
@@ -85,6 +89,13 @@ class Diagram:
                     "lane": LINE_LANE.get(code, 0.0),
                     "stations": ordered,
                 })
+
+        # Schematic (octilinear) coordinates for the spider-map layout.
+        coords = build_coords(self.lines, self.stations)
+        for code, (x, y) in coords.items():
+            if code in self.stations:
+                self.stations[code]["x"] = x
+                self.stations[code]["y"] = y
 
     def geometry(self):
         """JSON-serializable static geometry for the frontend."""
