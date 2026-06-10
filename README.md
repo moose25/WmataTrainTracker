@@ -39,9 +39,11 @@ StandardRoutes API, interpolating its position between stations; the browser
 smoothly eases each dot toward its next position so trains glide. Train data
 refreshes every 10s, arrivals every 15s, incidents every 30s.
 
-> The diagram is drawn from real station coordinates (abstract colored lines on
-> dark grey — no map tiles). A hand-tuned schematic ("spider map" angles) is a
-> possible future refinement.
+The diagram uses a stylized **octilinear "spider map" layout** (45/90 angles,
+like the official Metro map), defined in `hub/layout.py`: anchor stations
+(terminals, interchanges, bends) have fixed grid coordinates and the rest are
+evenly interpolated along each straight segment. Tweak an anchor there to
+reshape a line.
 
 ### Command-line tools
 
@@ -95,6 +97,7 @@ Covered endpoint groups:
 - `dashboard.py` — live multi-panel terminal dashboard
 - `hub/server.py` — Flask backend serving the web hub + JSON endpoints
 - `hub/geometry.py` — builds the diagram and places trains by track circuit
+- `hub/layout.py` — octilinear "spider map" station coordinates (anchors + interpolation)
 - `hub/static/` — the hub frontend (SVG diagram, arrival board, ticker)
 
 ## Screenshots
