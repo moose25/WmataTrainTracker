@@ -65,12 +65,6 @@ def display_next_trains(next_trains):
     print(dashed_line)
 
 
-def abbreviate_destination(destination):
-    if len(destination) > 20 and len(destination[:18]) + 2 < 21:
-        destination = f"{destination[:18]}.."
-    return destination
-
-
 def main():
     stations = client.rail_stations()
     # Delay for 20 seconds before the next update

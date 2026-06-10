@@ -6,3 +6,6 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# Local preview artifacts
+hub_preview.png
