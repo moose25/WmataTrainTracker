@@ -57,7 +57,7 @@ def render_predictions(client, station_codes):
             dest = t.get("DestinationName", t.get("Destination", "?"))
             mins = t.get("Min", "?")
             cars = t.get("Car") or "-"
-            if dest in ("No Passenger", "ssenger"):
+            if dest == "No Passenger":
                 color = Fore.MAGENTA
                 mins_str = f"{color}{str(mins):>5}{Style.RESET_ALL}"
             else:

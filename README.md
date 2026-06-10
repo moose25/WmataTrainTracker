@@ -22,13 +22,36 @@ fun project now sits on a reusable WMATA API client.
 
 ## Usage
 
+### Live web hub (the main event)
+
+A browser dashboard you leave open to watch the system: a stylized diagram of
+the colored line routes on a dark background with **train dots gliding along the
+lines** in real time, an arrival board (click any station), and a service
+incident ticker.
+
+```
+python hub/server.py
+```
+
+Then open http://127.0.0.1:5000. Trains are placed by mapping each train's
+reported **track circuit** onto the ordered circuit→station sequence from the
+StandardRoutes API, interpolating its position between stations; the browser
+smoothly eases each dot toward its next position so trains glide. Train data
+refreshes every 10s, arrivals every 15s, incidents every 30s.
+
+> The diagram is drawn from real station coordinates (abstract colored lines on
+> dark grey — no map tiles). A hand-tuned schematic ("spider map" angles) is a
+> possible future refinement.
+
+### Command-line tools
+
 **Original station list** (every station, supported lines, next 3 trains, refreshing every 20s):
 
 ```
 python stationSchedule.py
 ```
 
-**Live dashboard** (rail predictions + incidents + elevator/escalator outages, optional bus stop):
+**Terminal dashboard** (rail predictions + incidents + elevator/escalator outages, optional bus stop):
 
 ```
 python dashboard.py
@@ -70,6 +93,9 @@ Covered endpoint groups:
 - `colors.py` — shared colorama line-color helpers
 - `stationSchedule.py` — original refreshing station list
 - `dashboard.py` — live multi-panel terminal dashboard
+- `hub/server.py` — Flask backend serving the web hub + JSON endpoints
+- `hub/geometry.py` — builds the diagram and places trains by track circuit
+- `hub/static/` — the hub frontend (SVG diagram, arrival board, ticker)
 
 ## Screenshots
 
