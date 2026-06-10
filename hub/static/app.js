@@ -111,7 +111,34 @@ function renderGeometry() {
     stationsLayer.appendChild(dot);
   }
 
+  renderLabels();
   renderLegend();
+}
+
+// Station name labels, placed to the outward side to reduce overlap.
+function renderLabels() {
+  const layer = $("#labels-layer");
+  const xs = geo.stations.map((s) => s.x).filter((v) => v != null);
+  const midX = (Math.min(...xs) + Math.max(...xs)) / 2;
+
+  for (const s of geo.stations) {
+    const p = stationXY[s.code];
+    if (!p) continue;
+    const interchange = (s.lines.length > 1) || (s.together && s.together.length);
+    const right = s.x >= midX;
+    const t = document.createElementNS(SVGNS, "text");
+    t.setAttribute("x", (p.x + (right ? 6 : -6)).toFixed(1));
+    t.setAttribute("y", (p.y + 2.4).toFixed(1));
+    t.setAttribute("text-anchor", right ? "start" : "end");
+    t.setAttribute("class", "station-label" + (interchange ? " interchange-label" : ""));
+    t.textContent = s.name;
+    layer.appendChild(t);
+  }
+
+  const toggle = $("#label-toggle");
+  const apply = () => $("#labels-layer").style.display = toggle.checked ? "" : "none";
+  toggle.addEventListener("change", apply);
+  apply();
 }
 
 function renderLegend() {

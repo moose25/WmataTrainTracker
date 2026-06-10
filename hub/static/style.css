@@ -37,6 +37,8 @@ html, body {
 #topbar h1 span { color: #e51937; letter-spacing: 1px; }
 
 #status { display: flex; gap: 18px; align-items: center; font-size: 13px; color: var(--muted); }
+#label-switch { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+#label-switch input { accent-color: #e51937; cursor: pointer; }
 #status #clock { font-variant-numeric: tabular-nums; }
 #conn.ok { color: #00b04f; }
 #conn.bad { color: #e51937; }
@@ -70,6 +72,17 @@ main {
 .interchange { stroke-width: 2.2; }
 
 .train-dot { stroke: rgba(0,0,0,.55); stroke-width: 1; }
+
+.station-label {
+  fill: #c2c6cc;
+  font-size: 5px;
+  font-family: "Segoe UI", Roboto, system-ui, sans-serif;
+  paint-order: stroke;
+  stroke: #1b1c1f;
+  stroke-width: 1.1px;
+  pointer-events: none;
+}
+.interchange-label { fill: #fff; font-size: 6px; font-weight: 600; }
 
 #legend {
   position: absolute;
@@ -140,7 +153,7 @@ main {
   margin-right: 14px;
 }
 #ticker { white-space: nowrap; overflow: hidden; }
-#ticker-inner { display: inline-block; padding-left: 100%; animation: scroll 60s linear infinite; }
+#ticker-inner { display: inline-block; padding-left: 100%; animation: scroll 120s linear infinite; }
 .ticker-item { margin-right: 60px; font-size: 13px; color: var(--text); }
 .ticker-item b { color: #ffd200; }
 .ticker-item.clear { color: #00b04f; }

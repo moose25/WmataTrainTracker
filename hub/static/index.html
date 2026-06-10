@@ -10,6 +10,7 @@
   <header id="topbar">
     <h1>METRO <span>live</span></h1>
     <div id="status">
+      <label id="label-switch"><input type="checkbox" id="label-toggle" checked /> labels</label>
       <span id="train-count">— trains</span>
       <span id="clock">--:--:--</span>
       <span id="conn" class="ok">connected</span>
@@ -30,6 +31,7 @@
         </defs>
         <g id="lines-layer"></g>
         <g id="stations-layer"></g>
+        <g id="labels-layer"></g>
         <g id="trains-layer" filter="url(#train-glow)"></g>
       </svg>
       <div id="legend"></div>
