@@ -3,53 +3,48 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WMATA Live Hub</title>
+  <title>WMATA Live Board</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header id="topbar">
-    <h1>METRO <span>live</span></h1>
+    <h1>METRO <span>live board</span></h1>
     <div id="status">
-      <label id="label-switch"><input type="checkbox" id="label-toggle" checked /> labels</label>
       <span id="train-count">— trains</span>
       <span id="clock">--:--:--</span>
       <span id="conn" class="ok">connected</span>
     </div>
   </header>
 
+  <div id="newsbar">
+    <span class="news-label">NEWS</span>
+    <div id="news-scroll"><span class="news-item">Loading…</span></div>
+  </div>
+
   <main>
-    <section id="map-wrap">
-      <svg id="map" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+    <section id="map-section">
+      <svg id="map" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <filter id="train-glow" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="2.2" result="blur" />
+            <feGaussianBlur stdDeviation="2.4" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
         </defs>
-        <g id="lines-layer"></g>
+        <g id="links-layer"></g>
+        <g id="tracks-layer"></g>
         <g id="stations-layer"></g>
-        <g id="labels-layer"></g>
         <g id="trains-layer" filter="url(#train-glow)"></g>
       </svg>
-      <div id="legend"></div>
     </section>
 
-    <aside id="sidebar">
-      <div id="board">
-        <h2 id="board-title">Click a station</h2>
-        <div id="board-sub">Next trains will appear here</div>
-        <ul id="board-list"></ul>
-      </div>
-    </aside>
+    <section id="boards-section">
+      <div id="boards-hint">Click a station on the map to see its arrivals. Pin to keep multiple boards.</div>
+      <div id="boards-grid"></div>
+    </section>
   </main>
-
-  <footer id="ticker-wrap">
-    <span class="ticker-label">SERVICE</span>
-    <div id="ticker"><span class="ticker-item">Loading incidents…</span></div>
-  </footer>
 
   <script src="app.js"></script>
 </body>

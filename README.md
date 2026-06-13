@@ -22,28 +22,29 @@ fun project now sits on a reusable WMATA API client.
 
 ## Usage
 
-### Live web hub (the main event)
+### Live web board (the main event)
 
-A browser dashboard you leave open to watch the system: a stylized diagram of
-the colored line routes on a dark background with **train dots gliding along the
-lines** in real time, an arrival board (click any station), and a service
-incident ticker.
+A glanceable info board you leave open to watch the system:
+
+- **News banner** — scrolling WMATA service alerts + DC news headlines (WTOP RSS).
+- **Branch board** — one horizontal track per line (a flat "strip map"), with
+  **live train dots gliding along each track** and git-branch-style connectors
+  linking the lines at transfer stations.
+- **Arrival boards** — click any station to open its live arrivals below the map;
+  **pin** a station to keep its board and stack several side by side.
 
 ```
 python hub/server.py
 ```
 
-Then open http://127.0.0.1:5000. Trains are placed by mapping each train's
-reported **track circuit** onto the ordered circuit→station sequence from the
-StandardRoutes API, interpolating its position between stations; the browser
-smoothly eases each dot toward its next position so trains glide. Train data
-refreshes every 10s, arrivals every 15s, incidents every 30s.
+Then open http://127.0.0.1:5000. Each train's position along its line comes from
+mapping its reported **track circuit** onto the ordered circuit→station sequence
+(StandardRoutes), interpolated between stations; the browser eases each dot
+toward its next position so trains glide. Trains refresh every 10s, arrival
+boards every 15s, news every minute.
 
-The diagram uses a stylized **octilinear "spider map" layout** (45/90 angles,
-like the official Metro map), defined in `hub/layout.py`: anchor stations
-(terminals, interchanges, bends) have fixed grid coordinates and the rest are
-evenly interpolated along each straight segment. Tweak an anchor there to
-reshape a line.
+> `hub/layout.py` still holds the octilinear "spider map" coordinates (used by
+> the earlier 2D map); the board view only needs each line's station order.
 
 ### Command-line tools
 
@@ -95,10 +96,11 @@ Covered endpoint groups:
 - `colors.py` — shared colorama line-color helpers
 - `stationSchedule.py` — original refreshing station list
 - `dashboard.py` — live multi-panel terminal dashboard
-- `hub/server.py` — Flask backend serving the web hub + JSON endpoints
-- `hub/geometry.py` — builds the diagram and places trains by track circuit
-- `hub/layout.py` — octilinear "spider map" station coordinates (anchors + interpolation)
-- `hub/static/` — the hub frontend (SVG diagram, arrival board, ticker)
+- `hub/server.py` — Flask backend serving the board + JSON endpoints
+- `hub/geometry.py` — line/station ordering and per-train circuit placement
+- `hub/news.py` — WMATA alerts + DC news (RSS) for the banner
+- `hub/layout.py` — octilinear "spider map" coordinates (legacy 2D map view)
+- `hub/static/` — the board frontend (news banner, branch strips, arrival boards)
 
 ## Screenshots
 
