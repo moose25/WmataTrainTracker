@@ -1,183 +1,161 @@
 "use strict";
 
 // ---- config ---------------------------------------------------------------
-const PAD = 36;          // svg padding (user units)
-const VIEW_W = 1000;     // svg coordinate width
-const LANE_PX = 5;       // perpendicular spacing between parallel lines
-const STATION_R = 3.4;
-const INTERCHANGE_R = 5.2;
-const TRAIN_R = 4.2;
-const EASE = 0.18;       // per-frame easing toward target position
+const SVGNS = "http://www.w3.org/2000/svg";
+const ROW_H = 64;          // vertical spacing between line strips
+const TOP_PAD = 30;
+const LEFT_PAD = 116;      // room for the line bullet + label
+const RIGHT_PAD = 36;
+const STATION_R = 3.2;
+const INTERCHANGE_R = 4.6;
+const TRAIN_R = 5;
+const EASE = 0.16;         // per-frame easing for gliding trains
 
+const LINE_ORDER = ["RD", "OR", "SV", "BL", "YL", "GR"];
 const LINE_NAMES = {
-  RD: "Red", BL: "Blue", OR: "Orange", SV: "Silver", GR: "Green", YL: "Yellow",
+  RD: "Red", OR: "Orange", SV: "Silver", BL: "Blue", GR: "Green", YL: "Yellow",
 };
 
-const SVGNS = "http://www.w3.org/2000/svg";
+const $ = (s) => document.querySelector(s);
 
 // ---- state ----------------------------------------------------------------
-let geo = null;          // geometry payload
-let project = null;      // (lat,lon) -> {x,y}
-let stationXY = {};      // code -> {x,y}
-let trainDots = {};      // id -> {el, curX, curY, tgtX, tgtY}
-let activeStation = null;
+let geo = null;
+let lines = [];            // ordered line objects from geo
+let lineIndex = {};        // code -> row index
+let stationPos = {};       // `${code}@${line}` -> {x, y}
+let stationMeta = {};      // code -> station object
+let trainDots = {};        // id -> {el, curX, curY, tgtX, tgtY, title}
+let boards = [];           // {code, name, codes, pinned, el, listEl}
+const POLL = {};
 
-const $ = (sel) => document.querySelector(sel);
+// ---- layout ---------------------------------------------------------------
+function lineRowY(i) { return TOP_PAD + i * ROW_H; }
 
-// ---- projection -----------------------------------------------------------
-// Stations carry schematic grid coords (x, y); fit them into the SVG viewBox.
-function buildProjection(stations) {
-  const xs = stations.map((s) => s.x).filter((v) => v != null);
-  const ys = stations.map((s) => s.y).filter((v) => v != null);
-  const xMin = Math.min(...xs), xMax = Math.max(...xs);
-  const yMin = Math.min(...ys), yMax = Math.max(...ys);
-  const gridW = xMax - xMin || 1;
-  const gridH = yMax - yMin || 1;
-  const drawW = VIEW_W - 2 * PAD;
-  const scale = drawW / gridW;
-  const drawH = gridH * scale;
-  const viewH = drawH + 2 * PAD;
+function buildLayout() {
+  const svg = $("#map");
+  const width = $("#map-section").clientWidth || 1000;
+  const height = TOP_PAD + (lines.length - 1) * ROW_H + TOP_PAD;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("width", width);
+  svg.setAttribute("height", height);
 
-  $("#map").setAttribute("viewBox", `0 0 ${VIEW_W} ${viewH}`);
+  const trackW = width - LEFT_PAD - RIGHT_PAD;
 
-  project = (x, y) => ({
-    x: PAD + (x - xMin) * scale,
-    y: PAD + (y - yMin) * scale,
+  lines.forEach((line, i) => {
+    const y = lineRowY(i);
+    const n = line.stations.length;
+    line.stations.forEach((code, k) => {
+      const x = LEFT_PAD + (n === 1 ? 0 : (k / (n - 1)) * trackW);
+      stationPos[`${code}@${line.code}`] = { x, y };
+    });
   });
 }
 
-// ---- geometry helpers -----------------------------------------------------
-function perp(ax, ay, bx, by) {
-  const dx = bx - ax, dy = by - ay;
-  const len = Math.hypot(dx, dy) || 1;
-  return { x: -dy / len, y: dx / len };
+function stationFrac(code, lineCode) {
+  const line = lines[lineIndex[lineCode]];
+  if (!line) return null;
+  const k = line.stations.indexOf(code);
+  if (k < 0) return null;
+  return k / Math.max(1, line.stations.length - 1);
 }
 
-// Offset each polyline vertex along the average normal of its adjacent segments.
-function offsetPolyline(points, lane) {
-  if (!lane) return points;
-  const out = [];
-  for (let i = 0; i < points.length; i++) {
-    const p = points[i];
-    const a = points[i - 1] || p;
-    const b = points[i + 1] || p;
-    let nx = 0, ny = 0;
-    if (points[i - 1]) { const n = perp(a.x, a.y, p.x, p.y); nx += n.x; ny += n.y; }
-    if (points[i + 1]) { const n = perp(p.x, p.y, b.x, b.y); nx += n.x; ny += n.y; }
-    const len = Math.hypot(nx, ny) || 1;
-    out.push({ x: p.x + (nx / len) * lane * LANE_PX, y: p.y + (ny / len) * lane * LANE_PX });
-  }
-  return out;
+// ---- rendering: tracks, links, stations -----------------------------------
+function canonical(code) {
+  const s = stationMeta[code];
+  if (!s) return code;
+  return [code, ...(s.together || [])].sort()[0];
 }
 
-// ---- rendering: lines + stations -----------------------------------------
-function renderGeometry() {
-  buildProjection(geo.stations);
+function render() {
+  buildLayout();
+  const width = $("#map").viewBox.baseVal.width;
+  const trackW = width - LEFT_PAD - RIGHT_PAD;
 
-  for (const s of geo.stations) {
-    if (s.x != null) stationXY[s.code] = project(s.x, s.y);
-  }
-
-  const linesLayer = $("#lines-layer");
-  for (const line of geo.lines) {
-    const pts = line.stations.map((c) => stationXY[c]).filter(Boolean);
-    const off = offsetPolyline(pts, line.lane);
-    const d = off.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
-    const path = document.createElementNS(SVGNS, "path");
-    path.setAttribute("d", d);
-    path.setAttribute("class", "line-path");
-    path.setAttribute("stroke", line.color);
-    path.setAttribute("stroke-width", "3.4");
-    linesLayer.appendChild(path);
-  }
-
+  const tracks = $("#tracks-layer");
   const stationsLayer = $("#stations-layer");
-  for (const s of geo.stations) {
-    const p = stationXY[s.code];
-    if (!p) continue;
-    const interchange = (s.lines.length > 1) || (s.together && s.together.length);
-    const dot = document.createElementNS(SVGNS, "circle");
-    dot.setAttribute("cx", p.x.toFixed(1));
-    dot.setAttribute("cy", p.y.toFixed(1));
-    dot.setAttribute("r", interchange ? INTERCHANGE_R : STATION_R);
-    dot.setAttribute("class", "station-dot" + (interchange ? " interchange" : ""));
-    dot.dataset.code = s.code;
-    dot.dataset.name = s.name;
-    dot.dataset.together = (s.together || []).join(",");
-    const title = document.createElementNS(SVGNS, "title");
-    title.textContent = s.name;
-    dot.appendChild(title);
-    dot.addEventListener("click", () => selectStation(s));
-    stationsLayer.appendChild(dot);
+  const links = $("#links-layer");
+
+  // Interchange links (git-branch style curves between strips).
+  const groups = {};
+  lines.forEach((line, i) => {
+    for (const code of line.stations) {
+      const s = stationMeta[code];
+      const isX = s && ((s.lines && s.lines.length > 1) || (s.together && s.together.length));
+      if (!isX) continue;
+      const key = canonical(code);
+      (groups[key] = groups[key] || []).push({ i, pos: stationPos[`${code}@${line.code}`] });
+    }
+  });
+  for (const key in groups) {
+    const members = groups[key].sort((a, b) => a.i - b.i);
+    for (let m = 1; m < members.length; m++) {
+      const a = members[m - 1].pos, b = members[m].pos;
+      const midY = (a.y + b.y) / 2;
+      const d = `M${a.x} ${a.y} C ${a.x} ${midY}, ${b.x} ${midY}, ${b.x} ${b.y}`;
+      const path = document.createElementNS(SVGNS, "path");
+      path.setAttribute("d", d);
+      path.setAttribute("class", "xfer-link");
+      links.appendChild(path);
+    }
   }
 
-  renderLabels();
-  renderLegend();
+  // Tracks, labels, station ticks.
+  lines.forEach((line, i) => {
+    const y = lineRowY(i);
+    const x0 = LEFT_PAD, x1 = LEFT_PAD + trackW;
+
+    const track = document.createElementNS(SVGNS, "line");
+    track.setAttribute("x1", x0); track.setAttribute("y1", y);
+    track.setAttribute("x2", x1); track.setAttribute("y2", y);
+    track.setAttribute("class", "track");
+    track.setAttribute("stroke", line.color);
+    tracks.appendChild(track);
+
+    // Line bullet + name on the left.
+    const bullet = document.createElementNS(SVGNS, "circle");
+    bullet.setAttribute("cx", 24); bullet.setAttribute("cy", y);
+    bullet.setAttribute("r", 11); bullet.setAttribute("fill", line.color);
+    tracks.appendChild(bullet);
+    const blab = document.createElementNS(SVGNS, "text");
+    blab.setAttribute("x", 42); blab.setAttribute("y", y + 4);
+    blab.setAttribute("class", "line-name");
+    blab.textContent = LINE_NAMES[line.code] || line.code;
+    tracks.appendChild(blab);
+
+    for (const code of line.stations) {
+      const p = stationPos[`${code}@${line.code}`];
+      const s = stationMeta[code];
+      const isX = s && ((s.lines && s.lines.length > 1) || (s.together && s.together.length));
+      const dot = document.createElementNS(SVGNS, "circle");
+      dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y);
+      dot.setAttribute("r", isX ? INTERCHANGE_R : STATION_R);
+      dot.setAttribute("class", "station-dot" + (isX ? " interchange" : ""));
+      dot.dataset.code = code;
+      const title = document.createElementNS(SVGNS, "title");
+      title.textContent = s ? s.name : code;
+      dot.appendChild(title);
+      dot.addEventListener("click", () => openBoard(code));
+      stationsLayer.appendChild(dot);
+    }
+  });
 }
 
-// Station name labels, placed to the outward side to reduce overlap.
-function renderLabels() {
-  const layer = $("#labels-layer");
-  const xs = geo.stations.map((s) => s.x).filter((v) => v != null);
-  const midX = (Math.min(...xs) + Math.max(...xs)) / 2;
-
-  for (const s of geo.stations) {
-    const p = stationXY[s.code];
-    if (!p) continue;
-    const interchange = (s.lines.length > 1) || (s.together && s.together.length);
-    const right = s.x >= midX;
-    const t = document.createElementNS(SVGNS, "text");
-    t.setAttribute("x", (p.x + (right ? 6 : -6)).toFixed(1));
-    t.setAttribute("y", (p.y + 2.4).toFixed(1));
-    t.setAttribute("text-anchor", right ? "start" : "end");
-    t.setAttribute("class", "station-label" + (interchange ? " interchange-label" : ""));
-    t.textContent = s.name;
-    layer.appendChild(t);
-  }
-
-  const toggle = $("#label-toggle");
-  const apply = () => $("#labels-layer").style.display = toggle.checked ? "" : "none";
-  toggle.addEventListener("change", apply);
-  apply();
-}
-
-function renderLegend() {
-  const legend = $("#legend");
-  legend.innerHTML = "";
-  for (const line of geo.lines) {
-    const item = document.createElement("div");
-    item.className = "legend-item";
-    item.innerHTML =
-      `<span class="legend-swatch" style="background:${line.color}"></span>${LINE_NAMES[line.code] || line.code}`;
-    legend.appendChild(item);
-  }
-}
-
-// ---- rendering: trains (animated) ----------------------------------------
-function trainScreenPos(t) {
-  const a = stationXY[t.from], b = stationXY[t.to];
-  if (!a) return null;
-  if (!b || t.from === t.to) return { x: a.x, y: a.y };
-  // Interpolate along the schematic segment, then offset onto the line's lane.
-  const f = t.frac == null ? 0 : t.frac;
-  const base = { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
-  const lane = laneFor(t.line);
-  if (!lane) return base;
-  const n = perp(a.x, a.y, b.x, b.y);
-  return { x: base.x + n.x * lane * LANE_PX, y: base.y + n.y * lane * LANE_PX };
-}
-
-function laneFor(code) {
-  const line = geo.lines.find((l) => l.code === code);
-  return line ? line.lane : 0;
-}
-
+// ---- trains ---------------------------------------------------------------
 function updateTrains(trains) {
-  const seen = new Set();
   const layer = $("#trains-layer");
+  const seen = new Set();
   for (const t of trains) {
-    const pos = trainScreenPos(t);
+    const f = stationFrac(t.from, t.line);
+    if (f == null) continue;
+    const fTo = stationFrac(t.to, t.line);
+    const frac = fTo == null ? f : f + (fTo - f) * (t.frac == null ? 0 : t.frac);
+    const pos = stationPos[`${t.from}@${t.line}`];
     if (!pos) continue;
+    const width = $("#map").viewBox.baseVal.width;
+    const trackW = width - LEFT_PAD - RIGHT_PAD;
+    const x = LEFT_PAD + frac * trackW;
+    const y = lineRowY(lineIndex[t.line]);
+
     seen.add(t.id);
     let dot = trainDots[t.id];
     if (!dot) {
@@ -188,19 +166,14 @@ function updateTrains(trains) {
       const title = document.createElementNS(SVGNS, "title");
       el.appendChild(title);
       layer.appendChild(el);
-      dot = trainDots[t.id] = { el, curX: pos.x, curY: pos.y, tgtX: pos.x, tgtY: pos.y, title };
+      dot = trainDots[t.id] = { el, curX: x, curY: y, tgtX: x, tgtY: y, title };
     }
-    dot.tgtX = pos.x;
-    dot.tgtY = pos.y;
+    dot.tgtX = x; dot.tgtY = y;
     dot.el.setAttribute("fill", t.color);
     dot.title.textContent = `${LINE_NAMES[t.line] || t.line} → ${t.dest}`;
   }
-  // Remove trains that vanished.
   for (const id of Object.keys(trainDots)) {
-    if (!seen.has(id)) {
-      trainDots[id].el.remove();
-      delete trainDots[id];
-    }
+    if (!seen.has(id)) { trainDots[id].el.remove(); delete trainDots[id]; }
   }
   $("#train-count").textContent = `${seen.size} trains`;
 }
@@ -216,79 +189,104 @@ function animate() {
   requestAnimationFrame(animate);
 }
 
-// ---- arrival board --------------------------------------------------------
-function selectStation(s) {
-  activeStation = s;
-  document.querySelectorAll(".station-dot.active").forEach((e) => e.classList.remove("active"));
-  document.querySelectorAll(`.station-dot[data-code="${s.code}"]`).forEach((e) => e.classList.add("active"));
-  $("#board-title").textContent = s.name;
-  const codes = [s.code, ...(s.together || [])].join(",");
-  $("#board-sub").textContent = "Loading…";
-  loadArrivals(codes);
-}
-
-async function loadArrivals(codes) {
-  try {
-    const r = await fetch(`/api/arrivals?codes=${encodeURIComponent(codes)}`);
-    const data = await r.json();
-    const trains = data.stations.flatMap((st) => st.trains);
-    renderBoard(trains);
-  } catch (e) {
-    $("#board-sub").textContent = "Could not load arrivals.";
-  }
-}
-
+// ---- arrival boards (click + pin) -----------------------------------------
 function colorFor(code) {
-  const line = geo.lines.find((l) => l.code === code);
+  const line = lines.find((l) => l.code === code);
   return line ? line.color : "#888";
 }
 
-function renderBoard(trains) {
-  const list = $("#board-list");
-  list.innerHTML = "";
-  const valid = trains.filter((t) => t.dest && t.dest !== "No Passenger" && t.dest !== "Train");
-  $("#board-sub").textContent = valid.length ? `${valid.length} upcoming` : "No trains reported";
-  for (const t of valid) {
-    const li = document.createElement("li");
-    const min = t.min;
-    const minHtml = (min === "ARR" || min === "BRD")
-      ? `${min}`
-      : `${min}<small> min</small>`;
-    li.innerHTML =
-      `<span class="pill" style="background:${colorFor(t.line)}">${t.line || ""}</span>` +
-      `<span class="board-dest">${t.dest}</span>` +
-      `<span class="board-min">${minHtml}</span>`;
-    list.appendChild(li);
+function openBoard(code) {
+  const s = stationMeta[code];
+  if (!s) return;
+  const codes = [code, ...(s.together || [])];
+  // Already shown? just refresh it.
+  let board = boards.find((b) => b.code === code || (s.together || []).includes(b.code));
+  if (!board) {
+    // Replace the existing transient (unpinned) board, if any.
+    const transient = boards.find((b) => !b.pinned);
+    if (transient) removeBoard(transient);
+    board = createBoard(code, s.name, codes);
+    boards.push(board);
+  }
+  loadBoard(board);
+  $("#boards-hint").style.display = boards.length ? "none" : "";
+}
+
+function createBoard(code, name, codes) {
+  const el = document.createElement("div");
+  el.className = "board-card";
+  el.innerHTML =
+    `<div class="board-head">
+       <span class="board-name"></span>
+       <span class="board-actions">
+         <button class="pin-btn" title="Pin">📌</button>
+         <button class="close-btn" title="Close">✕</button>
+       </span>
+     </div>
+     <ul class="board-list"></ul>`;
+  el.querySelector(".board-name").textContent = name;
+  const board = { code, name, codes, pinned: false, el, listEl: el.querySelector(".board-list") };
+  el.querySelector(".pin-btn").addEventListener("click", () => togglePin(board));
+  el.querySelector(".close-btn").addEventListener("click", () => removeBoard(board));
+  $("#boards-grid").appendChild(el);
+  return board;
+}
+
+function togglePin(board) {
+  board.pinned = !board.pinned;
+  board.el.classList.toggle("pinned", board.pinned);
+  board.el.querySelector(".pin-btn").classList.toggle("on", board.pinned);
+}
+
+function removeBoard(board) {
+  board.el.remove();
+  boards = boards.filter((b) => b !== board);
+  $("#boards-hint").style.display = boards.length ? "none" : "";
+}
+
+async function loadBoard(board) {
+  try {
+    const r = await fetch(`/api/arrivals?codes=${encodeURIComponent(board.codes.join(","))}`);
+    const data = await r.json();
+    const trains = data.stations.flatMap((st) => st.trains)
+      .filter((t) => t.dest && t.dest !== "No Passenger" && t.dest !== "Train");
+    board.listEl.innerHTML = trains.length
+      ? trains.map((t) => {
+          const min = (t.min === "ARR" || t.min === "BRD") ? t.min : `${t.min}<small> min</small>`;
+          return `<li><span class="pill" style="background:${colorFor(t.line)}">${t.line || ""}</span>` +
+                 `<span class="b-dest">${t.dest}</span><span class="b-min">${min}</span></li>`;
+        }).join("")
+      : `<li class="b-empty">No trains reported</li>`;
+  } catch (e) {
+    board.listEl.innerHTML = `<li class="b-empty">Could not load arrivals</li>`;
   }
 }
 
-// ---- incident ticker ------------------------------------------------------
-async function loadIncidents() {
+function refreshBoards() { boards.forEach(loadBoard); }
+
+// ---- news banner ----------------------------------------------------------
+async function loadNews() {
   try {
-    const r = await fetch("/api/incidents");
+    const r = await fetch("/api/news");
     const data = await r.json();
-    const items = [];
-    for (const inc of data.rail) {
-      items.push(`<span class="ticker-item"><b>${(inc.lines || []).join(" ")}</b> ${inc.description}</span>`);
-    }
-    for (const e of data.elevator) {
-      items.push(`<span class="ticker-item"><b>${e.unit}</b> @ ${e.station} — ${e.symptom}</span>`);
-    }
-    if (!items.length) items.push(`<span class="ticker-item clear">No service incidents reported — trains running normally.</span>`);
-    $("#ticker").innerHTML = `<div id="ticker-inner">${items.join("")}</div>`;
-  } catch (e) { /* leave previous */ }
+    const items = data.items.length ? data.items : [{ kind: "news", text: "No news." }];
+    const html = items.map((it) => {
+      const tag = it.kind === "alert"
+        ? `<b class="n-alert">ALERT</b>` : `<b class="n-news">DC</b>`;
+      return `<span class="news-item">${tag} ${it.text}</span>`;
+    }).join("");
+    $("#news-scroll").innerHTML = `<div id="news-inner">${html}${html}</div>`;
+  } catch (e) { /* keep previous */ }
 }
 
-// ---- polling --------------------------------------------------------------
+// ---- polling / status -----------------------------------------------------
 async function poll(url, onData) {
   try {
     const r = await fetch(url);
     if (!r.ok) throw new Error(r.status);
     onData(await r.json());
     setConn(true);
-  } catch (e) {
-    setConn(false);
-  }
+  } catch (e) { setConn(false); }
 }
 
 function setConn(ok) {
@@ -298,39 +296,44 @@ function setConn(ok) {
 }
 
 function tickClock() {
-  const d = new Date();
-  $("#clock").textContent = d.toLocaleTimeString([], { hour12: false });
+  $("#clock").textContent = new Date().toLocaleTimeString([], { hour12: false });
 }
 
 // ---- boot -----------------------------------------------------------------
 async function boot() {
-  setInterval(tickClock, 1000);
-  tickClock();
+  setInterval(tickClock, 1000); tickClock();
 
   const r = await fetch("/api/geometry");
   geo = await r.json();
-  renderGeometry();
-  animate();
+  for (const s of geo.stations) stationMeta[s.code] = s;
+  lines = LINE_ORDER.map((c) => geo.lines.find((l) => l.code === c)).filter(Boolean);
+  lines.forEach((l, i) => (lineIndex[l.code] = i));
 
-  // Default focus: Metro Center if present, else first interchange.
-  const metro = geo.stations.find((s) => s.code === "A01")
-    || geo.stations.find((s) => s.lines.length > 1)
-    || geo.stations[0];
-  if (metro) selectStation(metro);
+  render();
+  animate();
 
   const pollTrains = () => poll("/api/trains", (d) => updateTrains(d.trains));
   pollTrains();
   setInterval(pollTrains, 10000);
 
-  loadIncidents();
-  setInterval(loadIncidents, 30000);
+  loadNews(); setInterval(loadNews, 60000);
+  setInterval(refreshBoards, 15000);
 
-  setInterval(() => {
-    if (activeStation) {
-      const codes = [activeStation.code, ...(activeStation.together || [])].join(",");
-      loadArrivals(codes);
-    }
-  }, 15000);
+  // Reflow the strip layout on resize (debounced), keeping train/board state.
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(reflow, 250);
+  });
+}
+
+function reflow() {
+  ["links-layer", "tracks-layer", "stations-layer", "trains-layer"].forEach((id) => {
+    const g = document.getElementById(id);
+    while (g.firstChild) g.removeChild(g.firstChild);
+  });
+  trainDots = {};
+  render();
 }
 
 boot();

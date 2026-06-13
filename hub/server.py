@@ -1,10 +1,11 @@
 """Flask backend for the WMATA live hub.
 
 Serves the static frontend plus JSON endpoints built on the shared WmataClient:
-  GET /                  -> the hub page
-  GET /api/geometry      -> static diagram (stations + line polylines + bounds)
-  GET /api/trains        -> live train dots (interpolated lat/lon), cached briefly
+  GET /                  -> the live board page
+  GET /api/geometry      -> stations + per-line station ordering
+  GET /api/trains        -> live train positions (line, from, to, frac), cached
   GET /api/arrivals      -> next-train predictions for ?codes=A01,C01
+  GET /api/news          -> WMATA alerts + DC news headlines for the banner
   GET /api/incidents     -> rail incidents + elevator/escalator outages
 
 Run from the project root:  python hub/server.py
@@ -22,6 +23,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 from wmata import WmataClient, WmataError  # noqa: E402
 from geometry import Diagram  # noqa: E402
+from news import build_news  # noqa: E402
 
 app = Flask(__name__, static_folder=os.path.join(HERE, "static"), static_url_path="")
 
@@ -53,6 +55,10 @@ incidents_cache = TTLCache(
         "rail": client.rail_incidents(),
         "elevator": client.elevator_incidents(),
     },
+)
+news_cache = TTLCache(
+    300,  # DC headlines refresh every 5 min; alerts piggy-back on the same call
+    lambda: build_news(client.rail_incidents(), client.elevator_incidents()),
 )
 
 
@@ -91,6 +97,11 @@ def api_arrivals():
         })
     stations = [{"name": name, "trains": trains_} for name, trains_ in by_station.items()]
     return jsonify({"stations": stations})
+
+
+@app.route("/api/news")
+def api_news():
+    return jsonify({"items": news_cache.get()})
 
 
 @app.route("/api/incidents")
